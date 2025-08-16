@@ -44,3 +44,20 @@ improves query performance for BI tools.
 
 ![STAR SCHEMA](dbdiagram.io.svg)
 
+## 5. Dashboard Preview
+The final deliverable is a multi-tab interactive dashboard built in Tableau, designed to function as a "Seller Central" analytics portal.
+
+(Insert a screenshot of your final Tableau dashboard here)
+
+**Dashboard Tabs:**
+
+**Executive Overview: High-level KPIs and a geographic sales map for at-a-glance performance monitoring.**
+
+![EXECUTIVE_OVERVIEW](Executive_overview.png)
+
+**Customer Deep Dive: Detailed Recency, Frequency, and Monetary (RFM) analysis to identify and segment high-value customers.**
+
+![CUSTOMER DEEP DIVE](Customer_Deep_Dive.png)
+**Logistics & Reviews: A statistical analysis correlating delivery timeliness with customer review scores to uncover operational improvement opportunities.**
+
+![Logistics_&_Reviews](Logistics_and_reviews.png)
