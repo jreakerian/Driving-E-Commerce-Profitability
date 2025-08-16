@@ -101,15 +101,11 @@ def load_to_db(df, table_name, conn, s3_client):
 
         # 3. Execute Redshift commands
         with conn.cursor() as cursor:
-            # Drop table with CASCADE to remove dependent objects
-            cursor.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE;")
-            logging.info(f"Dropped table '{table_name}' with CASCADE.")
-
-            # Create the table
-            cols = [f"{col} {get_redshift_type(dtype)}" for col, dtype in df.dtypes.items()]
-            create_sql = f"CREATE TABLE {table_name} ({', '.join(cols)});"
-            cursor.execute(create_sql)
-            logging.info(f"Created table '{table_name}'.")
+            # Instead of dropping and creating, we TRUNCATE the existing table.
+            # TRUNCATE is a fast way to delete all rows from a table.
+            logging.info(f"Truncating table '{table_name}' before loading...")
+            cursor.execute(f"TRUNCATE TABLE {table_name};")
+            logging.info(f"Table '{table_name}' truncated.")
 
             # Execute the COPY command from S3
             s3_path = f"s3://{S3_BUCKET}/{s3_key}"
@@ -163,12 +159,39 @@ def main():
 
     dim_customers = all_data['customers'][
         ['customer_unique_id', 'customer_zip_code_prefix', 'customer_city', 'customer_state']].drop_duplicates()
+
     dim_products = all_data['products'][
         ['product_id', 'product_category_name', 'product_weight_g', 'product_length_cm', 'product_height_cm',
          'product_width_cm']].drop_duplicates(subset=['product_id'])
+    # Define the columns that should be integers
+    integer_cols = ['product_weight_g', 'product_length_cm', 'product_height_cm', 'product_width_cm']
+        # First, fill any potential missing values (NaNs) with 0
+    for col in integer_cols:
+        dim_products[col] = dim_products[col].fillna(0)
+    # Now, safely cast the columns to integer type
+    dim_products = dim_products.astype({col: 'int' for col in integer_cols})
+    logging.info("Enforced integer types for dim_products physical dimension columns.")
+
+
     dim_sellers = all_data['sellers'][
         ['seller_id', 'seller_zip_code_prefix', 'seller_city', 'seller_state']].drop_duplicates()
-    dim_geolocation = all_data['geolocation'].drop_duplicates(subset=['geolocation_zip_code_prefix'])
+    dim_geolocation = all_data['geolocation'][[
+        'geolocation_zip_code_prefix', 'geolocation_lat', 'geolocation_lng'
+    ]].drop_duplicates(subset=['geolocation_zip_code_prefix'])
+    logging.info("Created and selected columns for dim_geolocation DataFrame.")# --- Add this code within the transformation section of your main() function ---
+
+    # Create a new dimension table for orders to hold delivery timestamps
+    dim_orders = all_data['orders'][[
+        'order_id',
+        'customer_id',
+        'order_status',
+        'order_purchase_timestamp',
+        'order_approved_at',
+        'order_delivered_carrier_date',
+        'order_delivered_customer_date',
+        'order_estimated_delivery_date'
+    ]].drop_duplicates(subset=['order_id'])
+    logging.info("Created dim_orders DataFrame.")
 
     fact_order_items = pd.merge(pd.merge(all_data['orders'], all_data['customers'], on='customer_id'),
                                 all_data['order_items'], on='order_id')
@@ -180,11 +203,18 @@ def main():
     reviews_agg = all_data['reviews'].groupby('order_id').agg(review_score=('review_score', 'mean')).reset_index()
     fact_order_items = pd.merge(fact_order_items, reviews_agg, on='order_id', how='left')
     fact_order_items = fact_order_items[
-        ['order_id', 'order_item_id', 'product_id', 'seller_id', 'customer_unique_id', 'order_status',
+        ['order_id', 'order_item_id', 'product_id', 'seller_id', 'customer_unique_id',
          'order_purchase_timestamp', 'price', 'freight_value', 'payment_value', 'payment_installments', 'payment_type',
          'review_score']].copy()
+    # First, fill nulls for all relevant columns
     fact_order_items['review_score'] = fact_order_items['review_score'].fillna(0)
     fact_order_items['payment_value'] = fact_order_items['payment_value'].fillna(0)
+    fact_order_items['payment_installments'] = fact_order_items['payment_installments'].fillna(0)
+
+    # Now, enforce the correct integer types for columns defined as SMALLINT in the DDL
+    integer_cols = ['payment_installments', 'review_score']
+    fact_order_items = fact_order_items.astype({col: 'int' for col in integer_cols})
+    logging.info("Enforced integer types for fact_order_items columns.")
     logging.info("Data transformation complete.")
 
     # --- 3. LOADING ---
@@ -201,7 +231,8 @@ def main():
             'dim_products': dim_products,
             'dim_sellers': dim_sellers,
             'dim_geolocation': dim_geolocation,
-            'fact_order_items': fact_order_items
+            'fact_order_items': fact_order_items,
+            'dim_orders': dim_orders
         }
 
         # Load tables in an order that respects dependencies (dims before facts)
