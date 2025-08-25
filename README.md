@@ -47,8 +47,6 @@ improves query performance for BI tools.
 ## 5. Dashboard Preview
 The final deliverable is a multi-tab interactive dashboard built in Tableau, designed to function as a "Seller Central" analytics portal.
 
-(Insert a screenshot of your final Tableau dashboard here)
-
 **Dashboard Tabs:**
 
 **Executive Overview: High-level KPIs and a geographic sales map for at-a-glance performance monitoring.**
